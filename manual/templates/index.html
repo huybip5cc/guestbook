@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sổ lưu bút</title><link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <main class="shell">
+    <header><p class="eyebrow">GUESTBOOK · LỜI NHẮN TỪ BẠN</p><h1>Để lại một lời chào 👋</h1><p class="intro">Mỗi lời nhắn nhỏ làm nơi này thêm vui.</p></header>
+    {% with notices = get_flashed_messages(with_categories=true) %}{% for category, notice in notices %}<p class="notice {{ category }}">{{ notice }}</p>{% endfor %}{% endwith %}
+    <section class="panel"><h2>Viết lời nhắn</h2>
+      <form action="{{ url_for('add_message') }}" method="post">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label for="name">Tên của bạn</label><input id="name" name="name" maxlength="80" placeholder="Ví dụ: Linh" required>
+        <label for="message">Lời nhắn</label><textarea id="message" name="message" maxlength="1000" rows="4" placeholder="Bạn muốn chia sẻ điều gì?" required></textarea>
+        <button type="submit">Gửi lời nhắn <span>↗</span></button>
+      </form>
+    </section>
+    <section class="messages"><div class="section-title"><h2>Lời nhắn mới nhất</h2><span>{{ messages|length }} lời nhắn</span></div>
+      {% if messages %}{% for item in messages %}<article class="entry"><div class="entry-top"><div class="avatar">{{ item.name[0]|upper }}</div><div class="byline"><strong>{{ item.name }}</strong><small>#{{ item.id }} · {{ item.created_at }}</small></div><form action="{{ url_for('delete_message', message_id=item.id) }}" method="post" onsubmit="return confirm('Xóa lời nhắn này?')"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="delete" type="submit" aria-label="Xóa lời nhắn {{ item.id }}">Xóa</button></form></div><p class="entry-message">{{ item.message }}</p></article>{% endfor %}{% else %}<div class="empty">Chưa có lời nhắn nào. Hãy là người đầu tiên nhé!</div>{% endif %}
+    </section><footer>Lưu bút được lưu bằng SQLite.</footer>
+  </main>
+</body></html>
