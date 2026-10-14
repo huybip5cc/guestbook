@@ -1,61 +1,54 @@
 # Guestbook: Manual và Vibe Code
 
-Ứng dụng guestbook nhỏ dùng Python, Flask và SQLite. Có thể xem lời nhắn, gửi lời nhắn mới và xóa lời nhắn theo ID.
+Ứng dụng Flask theo yêu cầu bài tập hai buổi. Cả hai phiên bản có route danh sách, form thêm, xóa theo ID, lưu JSON và trang thống kê có biểu đồ Matplotlib. Dữ liệu được giữ trong list Python khi ứng dụng chạy và ghi lại vào `data.json` sau thao tác thêm/xóa.
 
 ## Hai phiên bản
 
-- `manual/`: tổ chức theo cấu trúc Flask quen thuộc, giao diện ở `templates/`, CSS ở `static/`, xử lý và lưu DB ở `app.py`.
-- `vibe-code/`: bản mẫu đơn tệp, phù hợp để thử nghiệm nhanh hoặc dùng làm đầu vào cho AI coding. Chức năng và dữ liệu SQLite tương đương.
+- `manual/`: cách tổ chức nhiều tệp Flask. Frontend dùng HTML cơ bản trong `templates/`, xử lý route trong `app.py`.
+- `vibe-code/`: bản một tệp Python, HTML/CSS nằm trong chuỗi template để dễ xem một ví dụ gọn.
 
-Mỗi phiên bản chạy độc lập và tạo database riêng trong thư mục của phiên bản đó.
+Mỗi thư mục có file JSON riêng, được tạo tự động sau khi thêm/xóa lời nhắn. File JSON và biểu đồ PNG là dữ liệu sinh ra tại máy và được Git bỏ qua.
+
+## Chức năng
+
+- `GET /`: hiển thị danh sách từ biến list toàn cục `entries`.
+- `GET /add`: hiển thị form hai trường `name`, `message`.
+- `POST /add`: kiểm tra hai trường không trống; nếu hợp lệ thì thêm entry, lưu JSON và chuyển về `/`; nếu không hợp lệ thì render lại form cùng thông báo.
+- `POST /delete/<id>`: xóa entry theo ID, lưu JSON và chuyển về `/`.
+- `GET /stats`: hiển thị tổng số lời nhắn, top 5 người gửi và biểu đồ cột theo người gửi. Biểu đồ được tạo bằng Matplotlib vào `static/stats.png`.
 
 ## Chạy phiên bản Manual
 
-```bash
+```powershell
 cd manual
 python -m venv .venv
-# Windows PowerShell:
 .venv\Scripts\Activate.ps1
-# macOS/Linux: source .venv/bin/activate
 pip install -r requirements.txt
 python app.py
 ```
 
-Mở http://127.0.0.1:5000.
+Mở http://127.0.0.1:5000. Dừng server bằng `Ctrl+C`.
 
 ## Chạy phiên bản Vibe Code
 
-Làm tương tự trong `vibe-code/`:
+Mở cửa sổ terminal khác hoặc dừng server bản Manual, rồi:
 
-```bash
+```powershell
 cd vibe-code
 python -m venv .venv
-# Windows PowerShell:
 .venv\Scripts\Activate.ps1
-# macOS/Linux: source .venv/bin/activate
 pip install -r requirements.txt
 python app.py
 ```
 
-## Đưa dự án lên GitHub
+## Upload thay đổi lên GitHub
 
-1. Đăng nhập [GitHub](https://github.com), chọn **New repository**, đặt tên ví dụ `guestbook`, để repository trống (không chọn tạo README vì dự án đã có README).
-2. Cài Git nếu máy chưa có, rồi mở Terminal/PowerShell tại thư mục `guestbook` đã tải hoặc giải nén.
-3. Chạy các lệnh sau (thay `YOUR_USERNAME` bằng tên tài khoản GitHub và chỉnh URL repository nếu đặt tên khác):
+Nếu repository đã được kết nối, mở PowerShell tại thư mục gốc `guestbook` và chạy:
 
-```bash
-git init
+```powershell
 git add .
-git commit -m "Build guestbook app with manual and vibe-code versions"
-git branch -M main
-git remote add origin https://github.com/YOUR_USERNAME/guestbook.git
-git push -u origin main
+git commit -m "Update guestbook to match class requirements"
+git push
 ```
 
-Nếu Git yêu cầu đăng nhập, hoàn tất xác thực trong cửa sổ trình duyệt hoặc dùng GitHub CLI (`gh auth login`). Không đưa mật khẩu/token vào mã nguồn.
-
-## Chức năng và lưu ý
-
-- Tên và nội dung bắt buộc; nội dung tối đa 1000 ký tự.
-- Lời nhắn được lưu bền vững bằng SQLite. Xóa dùng HTTP POST và CSRF token phiên.
-- Demo chỉ chạy trên máy cá nhân (`127.0.0.1`). Muốn triển khai công khai cần cấu hình máy chủ WSGI, `SECRET_KEY` bí mật, HTTPS, và bảo vệ xóa phù hợp; không dùng Flask development server cho production.
+Lần đầu upload, tạo repository trống trên GitHub, rồi kết nối bằng `git remote add origin https://github.com/USERNAME/guestbook.git` và `git push -u origin main`.

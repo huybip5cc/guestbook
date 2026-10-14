@@ -1,70 +1,97 @@
-import os
-import secrets
-import sqlite3
+import json
+from collections import Counter
 from pathlib import Path
 
-from flask import Flask, abort, flash, redirect, render_template, request, session, url_for
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+from flask import Flask, flash, redirect, render_template, request, url_for
 
 BASE_DIR = Path(__file__).resolve().parent
+DATA_FILE = BASE_DIR / "data.json"
+CHART_FILE = BASE_DIR / "static" / "stats.png"
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", secrets.token_hex(32))
-DATABASE = Path(os.environ.get("GUESTBOOK_DB", BASE_DIR / "guestbook.db"))
+app.secret_key = "guestbook-demo-key"
+
+# Buổi 1: dữ liệu nằm trong list Python toàn cục.
+# Buổi 2: list được nạp từ và ghi lại vào file JSON.
+entries = []
 
 
-def connect_db():
-    conn = sqlite3.connect(DATABASE)
-    conn.row_factory = sqlite3.Row
-    return conn
+def load_entries():
+    global entries
+    if DATA_FILE.exists():
+        try:
+            entries = json.loads(DATA_FILE.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            entries = []
+    else:
+        entries = []
 
 
-def initialize_db():
-    DATABASE.parent.mkdir(parents=True, exist_ok=True)
-    with connect_db() as conn:
-        conn.execute("""CREATE TABLE IF NOT EXISTS messages (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            message TEXT NOT NULL,
-            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-        )""")
+def save_entries():
+    DATA_FILE.write_text(json.dumps(entries, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def next_id():
+    return max((entry["id"] for entry in entries), default=0) + 1
+
+
+def create_chart(counts):
+    CHART_FILE.parent.mkdir(parents=True, exist_ok=True)
+    names = list(counts.keys())
+    values = list(counts.values())
+    fig, ax = plt.subplots(figsize=(8, 4.2))
+    if names:
+        ax.bar(names, values, color="#527a5b", width=0.65)
+        ax.set_ylabel("Số lời nhắn")
+        ax.set_xlabel("Người gửi")
+        ax.tick_params(axis="x", rotation=25)
+        ax.set_ylim(0, max(values) + 1)
+    else:
+        ax.text(0.5, 0.5, "Chưa có dữ liệu", ha="center", va="center", transform=ax.transAxes)
+        ax.set_axis_off()
+    fig.tight_layout()
+    fig.savefig(CHART_FILE, dpi=140)
+    plt.close(fig)
+
+
+load_entries()
 
 
 @app.get("/")
 def index():
-    token = session.setdefault("csrf_token", secrets.token_hex(32))
-    with connect_db() as conn:
-        messages = conn.execute("SELECT id, name, message, created_at FROM messages ORDER BY id DESC").fetchall()
-    return render_template("index.html", messages=messages, csrf_token=token)
+    return render_template("index.html", entries=entries)
 
 
-def verify_csrf():
-    if not secrets.compare_digest(request.form.get("csrf_token", ""), session.get("csrf_token", "")):
-        abort(400, "Invalid form token")
-
-
-@app.post("/messages")
-def add_message():
-    verify_csrf()
+@app.route("/add", methods=["GET", "POST"])
+def add():
+    if request.method == "GET":
+        return render_template("add.html")
     name = request.form.get("name", "").strip()
     message = request.form.get("message", "").strip()
-    if not name or not message or len(name) > 80 or len(message) > 1000:
-        flash("Vui lòng nhập tên (tối đa 80 ký tự) và lời nhắn (tối đa 1000 ký tự).", "error")
-    else:
-        with connect_db() as conn:
-            conn.execute("INSERT INTO messages (name, message) VALUES (?, ?)", (name, message))
-        flash("Đã lưu lời nhắn của bạn!", "success")
+    if not name or not message:
+        return render_template("add.html", error="Vui lòng nhập cả tên và lời nhắn.", name=name, message=message), 400
+    entries.append({"id": next_id(), "name": name, "message": message})
+    save_entries()
     return redirect(url_for("index"))
 
 
-@app.post("/messages/<int:message_id>/delete")
-def delete_message(message_id):
-    verify_csrf()
-    with connect_db() as conn:
-        conn.execute("DELETE FROM messages WHERE id = ?", (message_id,))
-    flash(f"Đã xóa lời nhắn #{message_id} (nếu tồn tại).", "success")
+@app.post("/delete/<int:id>")
+def delete(id):
+    global entries
+    entries = [entry for entry in entries if entry["id"] != id]
+    save_entries()
     return redirect(url_for("index"))
 
 
-initialize_db()
+@app.get("/stats")
+def stats():
+    counts = Counter(entry["name"] for entry in entries)
+    top_senders = counts.most_common(5)
+    create_chart(counts)
+    return render_template("stats.html", total=len(entries), top_senders=top_senders)
+
 
 if __name__ == "__main__":
-    app.run(debug=os.environ.get("FLASK_DEBUG") == "1")
+    app.run(debug=True)

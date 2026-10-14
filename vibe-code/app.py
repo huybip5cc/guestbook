@@ -1,65 +1,95 @@
-"""Quick single-file guestbook demo built with Flask and SQLite."""
-import os
-import secrets
-import sqlite3
+"""Bản guestbook một file: Flask + list Python + JSON + Matplotlib."""
+import json
+from collections import Counter
 from pathlib import Path
 
-from flask import Flask, abort, flash, redirect, render_template_string, request, session, url_for
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+from flask import Flask, redirect, render_template_string, request, url_for
 
+ROOT = Path(__file__).resolve().parent
+DATA_FILE = ROOT / "data.json"
+CHART_FILE = ROOT / "static" / "stats.png"
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", secrets.token_hex(32))
-DB = Path(os.environ.get("GUESTBOOK_DB", Path(__file__).with_name("guestbook.db")))
-DB.parent.mkdir(parents=True, exist_ok=True)
-
-with sqlite3.connect(DB) as connection:
-    connection.execute("CREATE TABLE IF NOT EXISTS messages (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, message TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)")
-
-PAGE = """<!doctype html><html lang=vi><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>Sổ lưu bút</title>
-<style>
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Playfair+Display:wght@600;700&display=swap');
-*{box-sizing:border-box}body{margin:0;background:radial-gradient(ellipse at 85% 3%,#e6eee4,transparent 32%),#f5f6f1;color:#28372f;font:15px 'DM Sans',sans-serif}.wrap{max-width:720px;width:calc(100% - 36px);margin:68px auto 40px}.eyebrow{font-size:11px;letter-spacing:2px;color:#76927e;font-weight:bold}h1{font:700 clamp(36px,7vw,54px) 'Playfair Display',serif;letter-spacing:-1.5px;margin:12px 0 8px;color:#20362a}.intro{color:#738078;margin:0 0 30px}.card,.entry,.empty{background:#fff;border:1px solid #e6eae4;border-radius:13px}.card{padding:24px 27px;box-shadow:0 12px 35px #34452e0a}h2{font-size:16px;margin:0 0 18px}label{display:block;font-size:12px;font-weight:700;margin:14px 0 7px}input,textarea{width:100%;border:1px solid #e0e5de;background:#fbfcfa;border-radius:8px;padding:12px;font:inherit;font-size:14px;outline:none}input:focus,textarea:focus{border-color:#78977e}textarea{resize:vertical}button{font:inherit;cursor:pointer;border:0}.send{margin-top:14px;background:#315a40;color:white;border-radius:8px;padding:12px 17px;font-size:13px;font-weight:bold}.send span{margin-left:12px}.heading{display:flex;justify-content:space-between;align-items:center;margin:32px 0 12px}.heading h2{margin:0}.heading small,.meta{color:#98a19a;font-size:11px}.entry{padding:16px 18px;margin:10px 0}.row{display:flex;align-items:center;gap:10px}.avatar{display:grid;place-items:center;width:35px;height:35px;border-radius:50%;background:#e7efe8;color:#42664b;font-weight:bold}.who{display:grid;gap:3px;flex:1;font-size:13px}.delete{background:transparent;color:#a47770;font-size:11px}.body{white-space:pre-wrap;overflow-wrap:anywhere;line-height:1.65;font-size:14px;margin:12px 0 1px 45px}.empty{text-align:center;padding:30px;color:#7d8980;font-size:13px}.notice{padding:11px 14px;border-radius:8px;font-size:13px}.success{background:#e8f2e9;color:#315a40}.error{background:#fff0eb;color:#9b5141}footer{text-align:center;color:#9ba39c;font-size:11px;padding:26px}@media(max-width:520px){.wrap{margin-top:40px}.card{padding:21px}.body{margin-left:0}}
-</style><main class=wrap><header><div class=eyebrow>GUESTBOOK · LỜI NHẮN TỪ BẠN</div><h1>Để lại một lời chào 👋</h1><p class=intro>Mỗi lời nhắn nhỏ làm nơi này thêm vui.</p></header>
-{% for category,notice in get_flashed_messages(with_categories=true) %}<p class='notice {{category}}'>{{notice}}</p>{% endfor %}
-<section class=card><h2>Viết lời nhắn</h2><form method=post action='{{ url_for("add") }}'><input type=hidden name=csrf_token value='{{token}}'><label for=name>Tên của bạn</label><input id=name name=name maxlength=80 placeholder='Ví dụ: Linh' required><label for=message>Lời nhắn</label><textarea id=message name=message rows=4 maxlength=1000 placeholder='Bạn muốn chia sẻ điều gì?' required></textarea><button class=send>Gửi lời nhắn <span>↗</span></button></form></section>
-<div class=heading><h2>Lời nhắn mới nhất</h2><small>{{messages|length}} lời nhắn</small></div>
-{% for item in messages %}<article class=entry><div class=row><div class=avatar>{{item.name[0]|upper}}</div><div class=who><strong>{{item.name}}</strong><span class=meta>#{{item.id}} · {{item.created_at}}</span></div><form method=post action='{{url_for("delete", message_id=item.id)}}' onsubmit='return confirm("Xóa lời nhắn này?")'><input type=hidden name=csrf_token value='{{token}}'><button class=delete aria-label='Xóa lời nhắn {{item.id}}'>Xóa</button></form></div><p class=body>{{item.message}}</p></article>{% else %}<div class=empty>Chưa có lời nhắn nào. Hãy là người đầu tiên nhé!</div>{% endfor %}<footer>Lưu bút được lưu bằng SQLite.</footer></main></html>"""
+app.secret_key = "guestbook-demo-key"
+entries = []
 
 
-def check_token():
-    if not secrets.compare_digest(request.form.get("csrf_token", ""), session.get("csrf_token", "")):
-        abort(400, "Invalid form token")
+def load_entries():
+    global entries
+    if DATA_FILE.exists():
+        try:
+            entries = json.loads(DATA_FILE.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError):
+            entries = []
+
+
+def save_entries():
+    DATA_FILE.write_text(json.dumps(entries, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def next_id():
+    return max((item["id"] for item in entries), default=0) + 1
+
+
+def make_chart(counts):
+    CHART_FILE.parent.mkdir(parents=True, exist_ok=True)
+    names, values = list(counts.keys()), list(counts.values())
+    fig, ax = plt.subplots(figsize=(8, 4.2))
+    if names:
+        ax.bar(names, values, color="#527a5b", width=.65)
+        ax.set_ylabel("Số lời nhắn")
+        ax.set_xlabel("Người gửi")
+        ax.tick_params(axis="x", rotation=25)
+        ax.set_ylim(0, max(values) + 1)
+    else:
+        ax.text(.5, .5, "Chưa có dữ liệu", ha="center", va="center", transform=ax.transAxes)
+        ax.set_axis_off()
+    fig.tight_layout()
+    fig.savefig(CHART_FILE, dpi=140)
+    plt.close(fig)
+
+
+load_entries()
+
+STYLE = ""
+INDEX = """<!doctype html><html lang=vi><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>Sổ lưu bút</title><style>{{style}}</style><main class=wrap><header><div class=eyebrow>GUESTBOOK · LỜI NHẮN TỪ BẠN</div><h1>Để lại một lời chào 👋</h1><p class=intro>Mỗi lời nhắn nhỏ làm nơi này thêm vui.</p></header><a class=button href='{{ url_for("add") }}'>＋ Viết lời nhắn</a> <a class=text-link href='{{ url_for("stats") }}'>Xem thống kê →</a><div class=heading><h2>Tất cả lời nhắn</h2><small>{{entries|length}} lời nhắn</small></div>{% for entry in entries|reverse %}<article class=entry><div class=row><div class=avatar>{{entry.name[0]|upper}}</div><div class=who><strong>{{entry.name}}</strong><span class=meta>ID: {{entry.id}}</span></div><form method=post action='{{url_for("delete", id=entry.id)}}' onsubmit='return confirm("Xóa lời nhắn này?")'><button class=delete>Xóa</button></form></div><p class=body>{{entry.message}}</p></article>{% else %}<div class=empty>Chưa có lời nhắn nào. Hãy là người đầu tiên nhé!</div>{% endfor %}<footer>Dữ liệu được lưu trong data.json.</footer></main></html>"""
+ADD = """<!doctype html><html lang=vi><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>Viết lời nhắn</title><style>{{style}}</style><main class=wrap><div class=eyebrow>GUESTBOOK · LỜI NHẮN TỪ BẠN</div><h1>Viết lời nhắn</h1><p class=intro>Chia sẻ vài dòng với mọi người.</p><section class=panel>{% if error %}<p style='color:#a44'>{{error}}</p>{% endif %}<form method=post><label for=name>Tên của bạn</label><input id=name name=name value='{{name|default("")}}' placeholder='Ví dụ: Linh'><label for=message>Lời nhắn</label><textarea id=message name=message rows=4 placeholder='Bạn muốn chia sẻ điều gì?'>{{message|default("")}}</textarea><button>Gửi lời nhắn ↗</button></form></section><a class=text-link href='{{ url_for("index") }}'>← Trở về sổ lưu bút</a></main></html>"""
+STATS = """<!doctype html><html lang=vi><meta charset=utf-8><meta name=viewport content='width=device-width,initial-scale=1'><title>Thống kê</title><style>{{style}}</style><main class=wrap><div class=eyebrow>GUESTBOOK · THỐNG KÊ</div><h1>Những con số nhỏ</h1><p class=intro>Tổng quan lời nhắn và người gửi.</p><section class=panel><h2>Tổng số lời nhắn</h2><p class=stat-number>{{total}}</p></section><section class=panel><h2>Số lời nhắn theo người gửi</h2><img class=chart src='{{url_for("static", filename="stats.png")}}?v={{total}}' alt='Biểu đồ cột số lời nhắn theo người gửi'></section><section class=panel><h2>5 người gửi nhiều lời nhắn nhất</h2>{% if top %}<ol class=top-list>{% for name,count in top %}<li><span>{{name}}</span><strong>{{count}}</strong></li>{% endfor %}</ol>{% else %}<p class=muted>Chưa có dữ liệu.</p>{% endif %}</section><a class=text-link href='{{ url_for("index") }}'>← Trở về sổ lưu bút</a></main></html>"""
 
 
 @app.get("/")
-def home():
-    token = session.setdefault("csrf_token", secrets.token_hex(32))
-    with sqlite3.connect(DB) as connection:
-        connection.row_factory = sqlite3.Row
-        messages = connection.execute("SELECT id,name,message,created_at FROM messages ORDER BY id DESC").fetchall()
-    return render_template_string(PAGE, messages=messages, token=token)
+def index():
+    return render_template_string(INDEX, entries=entries, style=STYLE)
 
 
-@app.post("/messages")
+@app.route("/add", methods=["GET", "POST"])
 def add():
-    check_token()
+    if request.method == "GET":
+        return render_template_string(ADD, style=STYLE)
     name, message = request.form.get("name", "").strip(), request.form.get("message", "").strip()
-    if not name or not message or len(name) > 80 or len(message) > 1000:
-        flash("Vui lòng nhập tên (tối đa 80 ký tự) và lời nhắn (tối đa 1000 ký tự).", "error")
-    else:
-        with sqlite3.connect(DB) as connection:
-            connection.execute("INSERT INTO messages(name,message) VALUES(?,?)", (name, message))
-        flash("Đã lưu lời nhắn của bạn!", "success")
-    return redirect(url_for("home"))
+    if not name or not message:
+        return render_template_string(ADD, style=STYLE, error="Vui lòng nhập cả tên và lời nhắn.", name=name, message=message), 400
+    entries.append({"id": next_id(), "name": name, "message": message})
+    save_entries()
+    return redirect(url_for("index"))
 
 
-@app.post("/messages/<int:message_id>/delete")
-def delete(message_id):
-    check_token()
-    with sqlite3.connect(DB) as connection:
-        connection.execute("DELETE FROM messages WHERE id=?", (message_id,))
-    flash(f"Đã xóa lời nhắn #{message_id} (nếu tồn tại).", "success")
-    return redirect(url_for("home"))
+@app.post("/delete/<int:id>")
+def delete(id):
+    global entries
+    entries = [entry for entry in entries if entry["id"] != id]
+    save_entries()
+    return redirect(url_for("index"))
+
+
+@app.get("/stats")
+def stats():
+    counts = Counter(item["name"] for item in entries)
+    make_chart(counts)
+    return render_template_string(STATS, style=STYLE, total=len(entries), top=counts.most_common(5))
 
 
 if __name__ == "__main__":
-    app.run(debug=os.environ.get("FLASK_DEBUG") == "1")
+    app.run(debug=True)
